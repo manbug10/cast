@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UxPlay GUI</title>
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+            --success: #22c55e;
+            --bg: #0f172a;
+            --card: #1e293b;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        
+        body {
+            background: linear-gradient(135deg, var(--bg) 0%, #1e1b4b 100%);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: var(--card);
+            border-radius: 16px;
+            padding: 2rem;
+            width: 100%;
+            max-width: 600px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+
+        h1 { text-align: center; margin-bottom: 1.5rem; color: var(--primary); }
+
+        .form-group { margin-bottom: 1rem; }
+        
+        label { display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.9rem; }
+        
+        input[type="text"], input[type="number"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            background: #0f172a;
+            color: white;
+            font-size: 1rem;
+        }
+
+        input:focus { outline: 2px solid var(--primary); border-color: transparent; }
+
+        .checkbox-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: #0f172a;
+            padding: 0.75rem;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
+
+        .btn-container {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        button {
+            flex: 1;
+            padding: 1rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-start { background: var(--success); color: white; }
+        .btn-start:hover { background: #16a34a; }
+        .btn-start:disabled { background: #334155; cursor: not-allowed; opacity: 0.7; }
+
+        .btn-stop { background: var(--danger); color: white; }
+        .btn-stop:hover { background: var(--danger-hover); }
+        .btn-stop:disabled { background: #334155; cursor: not-allowed; opacity: 0.7; }
+
+        .status-bar {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            background: #0f172a;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .status-running { color: var(--success); }
+        .status-stopped { color: var(--text-muted); }
+
+        .logs {
+            margin-top: 1.5rem;
+            background: #000;
+            border-radius: 8px;
+            padding: 1rem;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Consolas', monospace;
+            font-size: 0.85rem;
+            color: #4ade80;
+        }
+
+        .log-entry { margin-bottom: 4px; word-break: break-all; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📡 UxPlay GUI</h1>
+        
+        <div class="form-group">
+            <label for="deviceName">Nombre del dispositivo</label>
+            <input type="text" id="deviceName" placeholder="Ej: Mi PC Windows" value="UxPlay-PC">
+        </div>
+
+        <div class="form-group">
+            <label for="port">Puerto (Opcional)</label>
+            <input type="number" id="port" placeholder="5000" min="1" max="65535">
+        </div>
+
+        <div class="checkbox-group">
+            <label class="checkbox-item">
+                <input type="checkbox" id="verbose">
+                Modo Verbose (-v)
+            </label>
+            <label class="checkbox-item">
+                <input type="checkbox" id="audioOnly">
+                Solo Audio (-a)
+            </label>
+            <label class="checkbox-item">
+                <input type="checkbox" id="fullscreen">
+                Fullscreen (-f)
+            </label>
+        </div>
+
+        <div class="btn-container">
+            <button id="btnStart" class="btn-start" onclick="startServer()">▶ Iniciar Servidor</button>
+            <button id="btnStop" class="btn-stop" onclick="stopServer()" disabled>⏹ Detener</button>
+        </div>
+
+        <div id="statusBar" class="status-bar status-stopped">
+            Estado: Detenido
+        </div>
+
+        <div id="logs" class="logs">
+            <div class="log-entry">Esperando inicio...</div>
+        </div>
+    </div>
+
+    <script>
+        const { invoke } = window.__TAURI__.tauri;
+
+        function addLog(message) {
+            const logs = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = `> ${message}`;
+            logs.appendChild(entry);
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        async function checkStatus() {
+            try {
+                const running = await invoke('is_running');
+                updateUI(running);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function updateUI(isRunning) {
+            const btnStart = document.getElementById('btnStart');
+            const btnStop = document.getElementById('btnStop');
+            const statusBar = document.getElementById('statusBar');
+
+            btnStart.disabled = isRunning;
+            btnStop.disabled = !isRunning;
+
+            if (isRunning) {
+                statusBar.textContent = "Estado: ✅ En ejecución";
+                statusBar.className = "status-bar status-running";
+            } else {
+                statusBar.textContent = "Estado: ⏹ Detenido";
+                statusBar.className = "status-bar status-stopped";
+            }
+        }
+
+        async function startServer() {
+            const name = document.getElementById('deviceName').value;
+            const portVal = document.getElementById('port').value;
+            const verbose = document.getElementById('verbose').checked;
+            const audioOnly = document.getElementById('audioOnly').checked;
+            const fullscreen = document.getElementById('fullscreen').checked;
+
+            const params = {
+                name: name,
+                port: portVal ? parseInt(portVal) : null,
+                verbose: verbose,
+                audio_only: audioOnly,
+                fullscreen: fullscreen
+            };
+
+            addLog("Iniciando servidor...");
+            
+            try {
+                const result = await invoke('start_server', { params });
+                addLog(result);
+                await checkStatus();
+            } catch (e) {
+                addLog(`Error: ${e}`);
+                alert(`Error al iniciar: ${e}`);
+            }
+        }
+
+        async function stopServer() {
+            addLog("Deteniendo servidor...");
+            try {
+                const result = await invoke('stop_server');
+                addLog(result);
+                await checkStatus();
+            } catch (e) {
+                addLog(`Error: ${e}`);
+            }
+        }
+
+        // Verificar estado al cargar
+        setInterval(checkStatus, 2000);
+    </script>
+</body>
+</html>
