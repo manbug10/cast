@@ -1,0 +1,96 @@
+name: Build UxPlay GUI for Windows
+
+on:
+  push:
+    tags:
+      - 'v*' # Se activa cuando creas un tag como v1.0.0
+  workflow_dispatch: # Permite activarlo manualmente desde la pestaña Actions
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkg-config
+            mingw-w64-ucrt-x86_64-libplist
+            mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-gst-plugins-good
+            mingw-w64-ucrt-x86_64-gst-plugins-bad
+            git
+            unzip
+
+      - name: Build UxPlay
+        shell: msys2 {0}
+        run: |
+          git clone https://github.com/FDH2/UxPlay.git uxplay-src
+          cd uxplay-src
+          mkdir build && cd build
+          cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ..
+          ninja
+          # Copiamos el ejecutable a la carpeta de recursos de Tauri
+          cp uxplay.exe ../src-tauri/uxplay_windows.exe
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd src-tauri
+          # Si hubiera package.json en la raíz o en src-tauri
+          if (Test-Path "../package.json") { npm install } 
+          # Asegurar que cargo fetch se ejecute
+          cargo fetch
+
+      - name: Build Tauri App
+        run: |
+          cd src-tauri
+          npm run tauri build -- --verbose
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: src-tauri/target/release/uxplay-gui.exe
+          body: |
+            Versión automática compilada desde GitHub Actions.
+            
+            **Incluye:**
+            - Interfaz Gráfica (Tauri/Rust)
+            - Motor UxPlay integrado (no requiere instalación externa)
+            
+            **Uso:**
+            Simplemente ejecuta el archivo. Asegúrate de tener los drivers de AirPlay correctos si es necesario, aunque esta versión es portable.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Artifact (Para pruebas manuales)
+        uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          name: uxplay-gui-windows
+          path: src-tauri/target/release/uxplay-gui.exe
